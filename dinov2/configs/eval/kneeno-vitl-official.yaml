@@ -34,7 +34,7 @@ eval:
     label_meta: /hpcwork/p0021834/workspace_roman/jonas/BigKneeTar/metadata_labeled.json
     series_depth: 0  # native depth: DINO3DAdapter resizes every volume to the image_size cube anyway, so resampling
                      # the depth here first would only add a second interpolation
-    num_workers: 16
+    num_workers: 31
     subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
