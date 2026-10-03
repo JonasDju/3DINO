@@ -55,13 +55,13 @@ eval:
     batch_size: 32  # exams -> 128 volumes per encoder forward
   linear:
     batchnorm: true  # non-affine BatchNorm1d (z-score) in front of the linear layer
-    epochs: 30
+    epochs: 50
     batch_size: 32  # exams
     lr: 0.001
   linear_pool:
     pooling: avg
     batchnorm: true
-    epochs: 30
+    epochs: 50
     batch_size: 32  # exams
     lr: 0.001
   attentive_pool:
