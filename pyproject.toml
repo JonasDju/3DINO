@@ -1,0 +1,20 @@
+[project]
+name = "3dino"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fvcore>=0.1.5.post20221221",
+    "kneeno",
+    "monai>=1.6.1",
+    "nibabel>=5.4.2",
+    "omegaconf>=2.3.1",
+    "scikit-learn>=1.9.1",
+    "torch>=2.14.1",
+    "torchio>=1.2.1",
+    "torchmetrics>=1.0",
+    "torchvision>=0.29.1",
+    "xformers>=0.0.35",
+]
+
+[tool.uv.sources]
+kneeno = { path = "../KneeNo", editable = true }
