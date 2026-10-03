@@ -1,0 +1,73 @@
+# Standalone KneeNo classification evaluation of 3DINO (dinov2/eval/kneeno_classification.py), set up for the
+# official ViT-L weights (3dino_vit_weights.pth).
+
+# Architecture, with the key names of 3DINO's student: config block. Every key is optional: an omitted key falls
+# back to dinov2/configs/ssl3d_default_config.yaml, whose values are written out below (they match the official
+# weights). A key that does not exist there raises. For a self-trained run, copy the student: block of the run's
+# <output_dir>/config.yaml. The pretraining crop size (img_size) is not set here: it is read from the checkpoint's
+# positional embedding (112 for the official weights). Loading is strict, so a mismatch fails loudly.
+model:
+  arch: vit_large_3d  # vit_base_3d | vit_large_3d -- sets embed_dim / depth / num_heads, which the checkpoint can't tell
+  patch_size: 16
+  block_chunks: 4
+  ffn_layer: mlp
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  layerscale: 1.0e-05  # only whether LayerScale exists matters (null/0 -> none); its weights come from the checkpoint
+
+# Preprocessing (DINO3DAdapter): scale to [-1, 1], crop to the foreground, resize to an image_size^3 cube
+transform:
+  image_size: null  # cube edge length; null -> the checkpoint's pretraining crop size (no positional embedding interpolation)
+  crop_foreground: true
+
+# KneeNo classification evaluation -- see KneeNo/kneeno/evaluation/config.py for every key
+eval:
+  seed: 239
+  amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
+  cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
+                        # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
+  split:
+    test_fraction: 0.1
+  data:
+    data_root: $TMP/kneeno_data/unlabeled
+    label_meta: /hpcwork/p0021834/workspace_roman/jonas/BigKneeTar/metadata_labeled.json
+    series_depth: 0  # native depth: DINO3DAdapter resizes every volume to the image_size cube anyway, so resampling
+                     # the depth here first would only add a second interpolation
+    num_workers: 16
+    subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
+    multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
+    persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
+  logging:
+    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
+    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
+    tag_prefix: eval
+  freq:  # all 1: the standalone script runs one evaluation (epoch 0); --tasks picks the subset
+    knn: 1
+    linear: 1  # 3DINO has a cls token, so the linear task is available (unlike V-JEPA 2.1)
+    linear_pool: 1
+    attentive_pool: 1
+  knn:
+    k: [5, 20, 50, 100]
+    metric: cosine
+    temperature: 0.07
+    center: true  # subtract each sequence's mean feature before the per-sequence L2 normalisation
+    batch_size: 32  # exams -> 128 volumes per encoder forward
+  linear:
+    batchnorm: true  # non-affine BatchNorm1d (z-score) in front of the linear layer
+    epochs: 30
+    batch_size: 32  # exams
+    lr: 0.001
+  linear_pool:
+    pooling: avg
+    batchnorm: true
+    epochs: 30
+    batch_size: 32  # exams
+    lr: 0.001
+  attentive_pool:
+    depth: 1
+    num_heads: 16  # must divide embed_dim (1024 for ViT-L): KneeNo's default of 12 does not
+    epochs: 20
+    batch_size: 16  # exams
+    lr: 0.0005
+    warmup_epochs: 5

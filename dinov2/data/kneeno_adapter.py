@@ -24,18 +24,21 @@ class DINO3DAdapter(EncoderAdapter):
     :param embed_dim: feature dimension of the backbone, i.e. ``model.embed_dim``.
     :param image_size: edge length of the cube every volume is resized to. Should match the checkpoint's
         ``crops.global_crops_size``; any other size works, but interpolates the positional embedding.
+    :param crop_foreground: crop each volume to its foreground (every voxel above the minimum) before resizing,
+        as 3DINO's protocol does. False resizes the whole volume.
     """
 
     has_cls_token = True
 
-    def __init__(self, embed_dim, image_size):
+    def __init__(self, embed_dim, image_size, crop_foreground=True):
         self._embed_dim = embed_dim
         self.image_size = image_size
+        self.crop_foreground = crop_foreground
 
         self.transforms = Compose(
             [
                 ScaleIntensity(minv=-1, maxv=1),
-                CropForeground(select_fn=_foreground),
+                *([CropForeground(select_fn=_foreground)] if crop_foreground else []),
                 Resize(spatial_size=(self.image_size, self.image_size, self.image_size), mode="trilinear"),
             ]
         )
