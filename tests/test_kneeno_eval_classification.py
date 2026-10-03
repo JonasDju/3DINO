@@ -94,7 +94,7 @@ class EvalClassificationCliTest(unittest.TestCase):
         metrics = self._run(config_path)
         self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
         self.assertTrue(any(k.startswith("linear") for k in metrics), metrics)
-        params = yaml.safe_load((self.out / "per_label" / "params.yaml").read_text())
+        params = yaml.safe_load((self.out / "params.yaml").read_text())
         self.assertEqual(params["cli"]["checkpoint"], str(self.checkpoint_path))
         self.assertEqual(params["model"], {"arch": ARCH})
         with self.assertRaisesRegex(ValueError, "already exist"):

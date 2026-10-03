@@ -137,12 +137,12 @@ def check_results_dirs(cfg_eval):
 
 
 def save_params(config, args):
-    """Save the config and the command line to ``eval.logging.per_label_dir/params.yaml``."""
+    """Save the config and the command line to the parent of ``eval.logging.per_label_dir`` as ``params.yaml``."""
     label_dir = (config["eval"].get("logging") or {}).get("per_label_dir")
     if label_dir is None:
         logger.warning("eval.logging.per_label_dir not set, not saving the evaluation params to disk")
         return
-    label_dir = Path(label_dir)
+    label_dir = Path(label_dir).parent
     label_dir.mkdir(parents=True, exist_ok=True)
     params = {**config, "cli": {"checkpoint": args.checkpoint, "tasks": args.tasks, "device": args.device}}
     with open(label_dir / "params.yaml", "w") as f:
