@@ -31,11 +31,17 @@ from dinov2.eval.kneeno_classification import (
 
 # KneeNo's synthetic labeled-dataset fixtures, from the sibling (editable) KneeNo checkout
 sys.path.insert(0, str(Path(kneeno.__file__).resolve().parents[1] / "tests"))
-from labeled_fixtures import INTERNAL_SEQUENCES, full_exam_spec, make_internal_labeled_dataset  # noqa: E402
+from labeled_fixtures import (  # noqa: E402
+    INTERNAL_SEQUENCES,
+    full_exam_spec,
+    make_internal_labeled_dataset,
+    make_labeled_dataset,
+)
 
 ARCH = "vit_base_3d"
 IMG_SIZE = 32  # pretraining crop size of the fake checkpoint: a 2^3 patch grid
 SPEC = full_exam_spec(10, INTERNAL_SEQUENCES)  # 10 complete exams of native depths 6, 5, 4, 7
+EXTERNAL_SPEC = full_exam_spec(10)
 
 
 class EvalClassificationCliTest(unittest.TestCase):
@@ -52,6 +58,8 @@ class EvalClassificationCliTest(unittest.TestCase):
         torch.save({"teacher": teacher}, cls.checkpoint_path)
         cls.labeled_root = cls.root / "labeled"
         cls.labeled_meta_path = make_internal_labeled_dataset(cls.labeled_root, SPEC, h=20, w=24)
+        cls.external_root = cls.root / "external"
+        cls.external_meta_path = make_labeled_dataset(cls.external_root, EXTERNAL_SPEC, h=20, w=24)
 
     @classmethod
     def tearDownClass(cls):
@@ -60,7 +68,7 @@ class EvalClassificationCliTest(unittest.TestCase):
     def setUp(self):
         self.out = Path(tempfile.mkdtemp(dir=self.root))
 
-    def _write_config(self, model=None, transform=None):
+    def _write_config(self, model=None, transform=None, data=None):
         config = {
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
@@ -69,8 +77,10 @@ class EvalClassificationCliTest(unittest.TestCase):
                 "data": {
                     "data_root": str(self.labeled_root),
                     "label_meta": str(self.labeled_meta_path),
+                    "dataset_type": "internal",
                     "series_depth": 0,
                     "num_workers": 0,
+                    **(data or {}),
                 },
                 "logging": {
                     "tensorboard_dir": str(self.out / "tb"),
@@ -103,6 +113,16 @@ class EvalClassificationCliTest(unittest.TestCase):
     def test_image_size_override_interpolates_positional_embedding(self):
         config_path = self._write_config(transform={"image_size": 48, "crop_foreground": False})
         metrics = self._run(config_path, tasks=("knn",))
+        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
+
+    def test_external_dataset_runs(self):
+        # Every external sequence is stored in its own orientation; the adapter reorients each to RAS.
+        data = {
+            "data_root": str(self.external_root),
+            "label_meta": str(self.external_meta_path),
+            "dataset_type": "external",
+        }
+        metrics = self._run(self._write_config(data=data), tasks=("knn",))
         self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
 
     def test_loads_every_backbone_weight_and_drops_the_heads(self):

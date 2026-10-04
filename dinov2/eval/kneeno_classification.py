@@ -185,8 +185,10 @@ def main(argv=None):
             f"transform.image_size {image_size} differs from the pretraining crop size {img_size}: the positional "
             "embedding is interpolated"
         )
+
+    dataset_type = cfg_eval.get("data").get("dataset_type")
     adapter = DINO3DAdapter(
-        embed_dim=backbone.embed_dim, image_size=image_size, crop_foreground=cfg_transform["crop_foreground"]
+        dataset_type=dataset_type, embed_dim=backbone.embed_dim, image_size=image_size, crop_foreground=cfg_transform["crop_foreground"]
     )
 
     evaluator = ClassificationEvaluator(config=cfg_eval, adapter=adapter, device=device)
