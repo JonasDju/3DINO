@@ -30,17 +30,17 @@ eval:
   split:
     test_fraction: 0.1
   data:
-    data_root: $TMP/kneeno_data/unlabeled
+    data_root: $TMP/kneeno_data/internal
     label_meta: /hpcwork/p0021834/workspace_roman/jonas/BigKneeTar/metadata_labeled.json
-    series_depth: 0  # native depth: DINO3DAdapter resizes every volume to the image_size cube anyway, so resampling
-                     # the depth here first would only add a second interpolation
+    dataset_type: internal
+    series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
     subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
   logging:
-    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
-    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
+    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/internal/post-training/tb
+    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/internal/post-training/eval_per_label
     tag_prefix: eval
   freq:  # all 1: the standalone script runs one evaluation (epoch 0); --tasks picks the subset
     knn: 1
