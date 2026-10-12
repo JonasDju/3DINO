@@ -73,7 +73,7 @@ class EvalClassificationCliTest(unittest.TestCase):
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
                 "seed": 1,
-                "split": {"test_fraction": 0.3},
+                "split": {"train_fraction": 0.5, "val_fraction": 0.2, "test_fraction": 0.3},
                 "data": {
                     "data_root": str(self.labeled_root),
                     "label_meta": str(self.labeled_meta_path),
@@ -87,7 +87,7 @@ class EvalClassificationCliTest(unittest.TestCase):
                     "per_label_dir": str(self.out / "per_label"),
                 },
                 "knn": {"k": [3], "batch_size": 4},
-                "linear": {"epochs": 2, "batch_size": 4},
+                "linear": {"max_epochs": 2, "batch_size": 4},
             },
         }
         if transform is not None:

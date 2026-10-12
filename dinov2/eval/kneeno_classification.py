@@ -4,8 +4,8 @@
 Loads the frozen teacher backbone from a 3DINO checkpoint -- the official weights or a
 ``teacher_checkpoint.pth`` written by ``dinov2/train/train3d.py::do_test`` (both are
 ``{"teacher": {"backbone.*": ..., "dino_head.*": ..., ...}}``) -- and hands it to
-``kneeno.evaluation.ClassificationEvaluator``, logging the whole head fine-tuning curve to TensorBoard
-(``log_every_head_epoch=True``). The counterpart of vjepa2's ``app/vjepa_2_1/eval_classification.py``.
+``kneeno.evaluation.ClassificationEvaluator``, which logs each task's test metrics once (heads early-stopped on
+the val split). The counterpart of vjepa2's ``app/vjepa_2_1/eval_classification.py``.
 
 The config file has three blocks:
 
@@ -61,7 +61,8 @@ def parse_args(argv=None):
         nargs="+",
         default=None,
         choices=list(ALL_TASKS),
-        help="subset of tasks to run; defaults to all four",
+        help="subset of tasks to run; defaults to every task the model supports (the slice tasks need a "
+        "slice-wise 2D model and are left out)",
     )
     parser.add_argument("--device", type=str, default="cpu", help="e.g. 'cpu' or 'cuda:0'")
     return parser.parse_args(argv)
@@ -193,7 +194,7 @@ def main(argv=None):
 
     evaluator = ClassificationEvaluator(config=cfg_eval, adapter=adapter, device=device)
     try:
-        metrics = evaluator.evaluate(backbone, tasks=args.tasks, epoch=0, log_every_head_epoch=True)
+        metrics = evaluator.evaluate(backbone, tasks=args.tasks, epoch=0)
     finally:
         # Flush+close the TensorBoard writer so buffered scalars are not lost if the process exits right after
         evaluator.cleanup()
