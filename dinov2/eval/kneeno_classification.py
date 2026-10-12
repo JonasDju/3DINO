@@ -187,9 +187,8 @@ def main(argv=None):
             "embedding is interpolated"
         )
 
-    dataset_type = cfg_eval.get("data").get("dataset_type")
     adapter = DINO3DAdapter(
-        dataset_type=dataset_type, embed_dim=backbone.embed_dim, image_size=image_size, crop_foreground=cfg_transform["crop_foreground"]
+        embed_dim=backbone.embed_dim, image_size=image_size, crop_foreground=cfg_transform["crop_foreground"]
     )
 
     evaluator = ClassificationEvaluator(config=cfg_eval, adapter=adapter, device=device)

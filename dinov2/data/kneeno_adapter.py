@@ -1,5 +1,6 @@
 import torch
 from kneeno.evaluation.adapter import EncoderAdapter
+from kneeno.evaluation.dataset import SOURCES
 from monai.data import MetaTensor
 from monai.transforms import Compose, CropForeground, Resize, ScaleIntensity, ScaleIntensityRangePercentiles, \
     Orientation
@@ -54,19 +55,21 @@ class DINO3DAdapter(EncoderAdapter):
 
     has_cls_token = True
 
-    def __init__(self, dataset_type, embed_dim, image_size, crop_foreground=True):
-        self.dataset_type = dataset_type
+    def __init__(self, embed_dim, image_size, crop_foreground=True):
         self._embed_dim = embed_dim
         self.image_size = image_size
         self.crop_foreground = crop_foreground
 
         self.orientation = Orientation(axcodes="RAS")
 
-        assert dataset_type in ["internal", "external"]
-        self.scale_intensity = (
-            ScaleIntensity(minv=-1, maxv=1) if self.dataset_type == "internal" else
-            ScaleIntensityRangePercentiles(lower=0.05, upper=99.95, b_min=-1, b_max=1, clip=True, channel_wise=True)
-        )
+        # One intensity scaling per source (see prepare_input): picked per volume, since one evaluation can see both
+        self.scale_intensity = {
+            "internal": ScaleIntensity(minv=-1, maxv=1),
+            "external": ScaleIntensityRangePercentiles(
+                lower=0.05, upper=99.95, b_min=-1, b_max=1, clip=True, channel_wise=True
+            ),
+        }
+        assert set(self.scale_intensity) == set(SOURCES)
 
         self.common_transforms = Compose(
             [
@@ -79,7 +82,7 @@ class DINO3DAdapter(EncoderAdapter):
     def embed_dim(self):
         return self._embed_dim
 
-    def prepare_input(self, volume, orientation=None):
+    def prepare_input(self, volume, orientation=None, source=None):
         """``(1, D, H, W)`` raw volume in [0, 255] (internal) or unscaled (external) ->
                 ``(1, image_size, image_size, image_size)`` in [-1, 1].
 
@@ -97,7 +100,12 @@ class DINO3DAdapter(EncoderAdapter):
         percentile-normalized and just scale it to the right range [-1, 1].
 
         The external evaluation dataset can be loaded exactly as 3DINO expects
+
+        ``source`` (``"internal"`` or ``"external"``, the dataset the volume came from) picks between the two
+        intensity scalings; anything else raises.
         """
+        if source not in self.scale_intensity:
+            raise ValueError(f"DINO3DAdapter: source must be one of {SOURCES}, got {source!r}")
 
         if orientation is None:
             raise ValueError(
@@ -109,7 +117,7 @@ class DINO3DAdapter(EncoderAdapter):
         volume = MetaTensor(volume.float(), affine=affine_from_axcodes(orientation))
         volume = self.orientation(volume)  # spatial axes now increase toward R, A, S
 
-        volume = self.scale_intensity(volume)  # differs depending on the evaluation dataset
+        volume = self.scale_intensity[source](volume)  # differs depending on the volume's dataset
         volume = self.common_transforms(volume)
 
         return volume.as_tensor()

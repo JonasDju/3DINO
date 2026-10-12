@@ -41,7 +41,7 @@ from labeled_fixtures import (  # noqa: E402
 ARCH = "vit_base_3d"
 IMG_SIZE = 32  # pretraining crop size of the fake checkpoint: a 2^3 patch grid
 SPEC = full_exam_spec(10, INTERNAL_SEQUENCES)  # 10 complete exams of native depths 6, 5, 4, 7
-EXTERNAL_SPEC = full_exam_spec(10)
+EXTERNAL_SPEC = full_exam_spec(10, prefix="e")  # case ids distinct from the internal ones, as the mixed dataset requires
 
 
 class EvalClassificationCliTest(unittest.TestCase):
@@ -124,6 +124,17 @@ class EvalClassificationCliTest(unittest.TestCase):
         }
         metrics = self._run(self._write_config(data=data), tasks=("knn",))
         self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
+
+    def test_mixed_dataset_runs(self):
+        # Train/val on the internal exams, test on the external ones: the adapter scales each by its own source.
+        data = {
+            "data_root": {"internal": str(self.labeled_root), "external": str(self.external_root)},
+            "label_meta": {"internal": str(self.labeled_meta_path), "external": str(self.external_meta_path)},
+            "dataset_type": "mixed",
+        }
+        metrics = self._run(self._write_config(data=data))
+        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
+        self.assertTrue(any(k.startswith("linear") for k in metrics), metrics)
 
     def test_loads_every_backbone_weight_and_drops_the_heads(self):
         state_dict = load_backbone_state_dict(self.checkpoint_path)

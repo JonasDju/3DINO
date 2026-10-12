@@ -60,37 +60,58 @@ class PrepareInputMatches3DINOTest(unittest.TestCase):
 
     def test_every_sequence_matches_3dinos_pipeline_on_the_same_file(self):
         for crop_foreground in (True, False):
-            adapter = DINO3DAdapter("external", embed_dim=8, image_size=IMAGE_SIZE, crop_foreground=crop_foreground)
+            adapter = DINO3DAdapter(embed_dim=8, image_size=IMAGE_SIZE, crop_foreground=crop_foreground)
             for index, (case_id, _, _) in enumerate(self.dataset.samples):
-                volumes, _ = self.dataset[index]
+                volumes, _, source = self.dataset[index]
                 for series, volume, orientation in zip(EXTERNAL_SEQUENCES, volumes, self.dataset.orientations):
                     with self.subTest(crop_foreground=crop_foreground, case=case_id, series=series):
-                        out = adapter.prepare_input(volume, orientation=orientation)
+                        out = adapter.prepare_input(volume, orientation=orientation, source=source)
                         self.assertEqual(tuple(out.shape), (1, IMAGE_SIZE, IMAGE_SIZE, IMAGE_SIZE))
                         reference = self._reference(case_id, series, crop_foreground)
                         torch.testing.assert_close(out, reference, rtol=0, atol=1e-6)
 
     def test_the_orientation_decides_the_layout(self):
         # Without its own orientation (here: another sequence's), a volume no longer matches the reference.
-        adapter = DINO3DAdapter("external", embed_dim=8, image_size=IMAGE_SIZE, crop_foreground=False)
-        volumes, _ = self.dataset[0]
+        adapter = DINO3DAdapter(embed_dim=8, image_size=IMAGE_SIZE, crop_foreground=False)
+        volumes, _, source = self.dataset[0]
         case_id = self.dataset.samples[0][0]
-        sag = adapter.prepare_input(volumes[0], orientation=self.dataset.orientations[2])  # coronal's code
+        sag = adapter.prepare_input(volumes[0], orientation=self.dataset.orientations[2], source=source)  # coronal's code
         self.assertFalse(torch.allclose(sag, self._reference(case_id, "sag", crop_foreground=False), atol=1e-3))
 
     def test_prepare_input_requires_an_orientation(self):
-        adapter = DINO3DAdapter("external", embed_dim=8, image_size=IMAGE_SIZE)
-        volumes, _ = self.dataset[0]
+        adapter = DINO3DAdapter(embed_dim=8, image_size=IMAGE_SIZE)
+        volumes, _, source = self.dataset[0]
         with self.assertRaisesRegex(ValueError, "orientation"):
-            adapter.prepare_input(volumes[0])
+            adapter.prepare_input(volumes[0], source=source)
 
     def test_adapter_pickles(self):
         # prepare_input runs in DataLoader workers
-        adapter = DINO3DAdapter("external", embed_dim=8, image_size=IMAGE_SIZE)
+        adapter = DINO3DAdapter(embed_dim=8, image_size=IMAGE_SIZE)
         restored = pickle.loads(pickle.dumps(adapter))
-        volumes, _ = self.dataset[0]
+        volumes, _, source = self.dataset[0]
         code = self.dataset.orientations[0]
-        self.assertTrue(torch.equal(restored.prepare_input(volumes[0], code), adapter.prepare_input(volumes[0], code)))
+        self.assertTrue(torch.equal(restored.prepare_input(volumes[0], code, source), adapter.prepare_input(volumes[0], code, source)))
+
+
+class SourceTest(unittest.TestCase):
+    """``source`` picks the intensity scaling: min/max for the internal uint8 volumes, percentiles for the raw external ones."""
+
+    def setUp(self):
+        self.adapter = DINO3DAdapter(embed_dim=8, image_size=IMAGE_SIZE, crop_foreground=False)
+        gen = torch.Generator().manual_seed(0)
+        self.volume = torch.randint(0, 100, (1, 6, H, W), generator=gen).to(torch.uint8)
+        self.volume[0, 0, 0, 0] = 255  # one bright outlier: the min/max scaling keeps it, the percentile one clips it
+
+    def test_the_two_sources_are_scaled_differently(self):
+        internal = self.adapter.prepare_input(self.volume, "RAS", "internal")
+        external = self.adapter.prepare_input(self.volume, "RAS", "external")
+        self.assertEqual(internal.shape, external.shape)
+        self.assertFalse(torch.allclose(internal, external))
+
+    def test_unknown_source_raises(self):
+        for source in (None, "mixed", "External"):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "source"):
+                self.adapter.prepare_input(self.volume, "RAS", source)
 
 
 class AffineFromAxcodesTest(unittest.TestCase):

@@ -38,7 +38,7 @@ eval:
   data:
     data_root: $TMP/kneeno_data/internal
     label_meta: /hpcwork/p0021834/workspace_roman/jonas/BigKneeTar/metadata_labeled.json
-    dataset_type: internal
+    dataset_type: internal  # internal | external | mixed (mixed: data_root and label_meta as {internal: ..., external: ...})
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
     subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
