@@ -42,6 +42,7 @@ eval:
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
     subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
+    abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by an exam of another split
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
   logging:
