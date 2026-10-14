@@ -43,7 +43,7 @@ class PrepareInputMatches3DINOTest(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.root = Path(cls._tmp.name)
         meta = make_labeled_dataset(cls.root, full_exam_spec(2), h=H, w=W, dtype=np.int16)
-        cls.dataset = LabeledExternalKneeMRIDataset(cls.root, meta)
+        cls.dataset = LabeledExternalKneeMRIDataset(cls.root, meta, split="test")
 
     @classmethod
     def tearDownClass(cls):

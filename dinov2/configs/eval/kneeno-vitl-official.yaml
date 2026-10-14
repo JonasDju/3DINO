@@ -27,27 +27,29 @@ eval:
   amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
   cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
                         # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
-  split:  # fractions of the labeled exams, each > 0, summing to 1
-    train_fraction: 0.8
-    val_fraction: 0.1  # heads are scored on val every head epoch (early stopping)
-    test_fraction: 0.1  # scored once with each head's best val epoch; the reported numbers
+  split:  # the internal global "train" split is cut into train and val; the test sets are used whole
+    val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
   training:
     early_stop_on: auroc  # val metric that picks each head's best epoch
     early_stop_patience: 5  # head epochs without a val improvement before stopping; 0 = never stop early
   verbose: true  # log each task's start and every head epoch's val metrics
   data:
-    data_root: $TMP/kneeno_data/internal
-    label_meta: /hpcwork/p0021834/workspace_roman/jonas/BigKneeTar/metadata_labeled.json
-    dataset_type: internal  # internal | external | mixed (mixed: data_root and label_meta as {internal: ..., external: ...})
+    # internal: global "train" (the heads' train/val) + "val" (the "internal" test set); external: global "test".
+    # $TMP/kneeno_data/external comes from KneeNo's prepare_data.py --external-tar.
+    data_root: {internal: $TMP/kneeno_data/internal, external: $TMP/kneeno_data/external}
+    label_meta:
+      internal: /hpcwork/p0021834/workspace_roman/jonas/metadata/internal_labeled.json
+      external: /hpcwork/p0021834/workspace_roman/jonas/metadata/external_labeled.json
+    test_sets: [internal, external]  # heads are trained once and scored on both
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
-    subset: 1.0  # seeded subsample of the labeled EXAMS: float in (0, 1] = fraction, int > 1 = count, 1.0 = all
-    abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by an exam of another split
+    subset: 1.0  # seeded subsample of the internal "train" EXAMS (test sets always whole): float in (0, 1] = fraction, int > 1 = count, 1.0 = all
+    abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by another exam
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
   logging:
-    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/internal/post-training/tb
-    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/internal/post-training/eval_per_label
+    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
+    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
     tag_prefix: eval
   freq:  # all 1: the standalone script runs one evaluation (epoch 0); --tasks picks the subset
     knn: 1

@@ -4,8 +4,8 @@
 Loads the frozen teacher backbone from a 3DINO checkpoint -- the official weights or a
 ``teacher_checkpoint.pth`` written by ``dinov2/train/train3d.py::do_test`` (both are
 ``{"teacher": {"backbone.*": ..., "dino_head.*": ..., ...}}``) -- and hands it to
-``kneeno.evaluation.ClassificationEvaluator``, which logs each task's test metrics once (heads early-stopped on
-the val split). The counterpart of vjepa2's ``app/vjepa_2_1/eval_classification.py``.
+``kneeno.evaluation.ClassificationEvaluator``, which logs each task's metrics once per test set
+(``eval.data.test_sets``; heads early-stopped on the val split). The counterpart of vjepa2's ``app/vjepa_2_1/eval_classification.py``.
 
 The config file has three blocks:
 

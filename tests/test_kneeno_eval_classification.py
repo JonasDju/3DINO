@@ -40,8 +40,12 @@ from labeled_fixtures import (  # noqa: E402
 
 ARCH = "vit_base_3d"
 IMG_SIZE = 32  # pretraining crop size of the fake checkpoint: a 2^3 patch grid
-SPEC = full_exam_spec(10, INTERNAL_SEQUENCES)  # 10 complete exams of native depths 6, 5, 4, 7
-EXTERNAL_SPEC = full_exam_spec(10, prefix="e")  # case ids distinct from the internal ones, as the mixed dataset requires
+# 10 complete internal exams of native depths 6, 5, 4, 7: 7 in the global split "train" (the train part), 3 in "val"
+# (the "internal" test set)
+SPEC = full_exam_spec(10, INTERNAL_SEQUENCES)
+VAL_CASES = {f"c{i}": "val" for i in range(7, 10)}
+# 4 external exams, all "test" (the "external" test set); case ids distinct from the internal ones, as KneeNo requires
+EXTERNAL_SPEC = full_exam_spec(4, prefix="e")
 
 
 class EvalClassificationCliTest(unittest.TestCase):
@@ -57,7 +61,9 @@ class EvalClassificationCliTest(unittest.TestCase):
         cls.checkpoint_path = cls.root / "teacher_checkpoint.pth"
         torch.save({"teacher": teacher}, cls.checkpoint_path)
         cls.labeled_root = cls.root / "labeled"
-        cls.labeled_meta_path = make_internal_labeled_dataset(cls.labeled_root, SPEC, h=20, w=24)
+        cls.labeled_meta_path = make_internal_labeled_dataset(
+            cls.labeled_root, SPEC, h=20, w=24, case_splits=VAL_CASES
+        )
         cls.external_root = cls.root / "external"
         cls.external_meta_path = make_labeled_dataset(cls.external_root, EXTERNAL_SPEC, h=20, w=24)
 
@@ -73,11 +79,11 @@ class EvalClassificationCliTest(unittest.TestCase):
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
                 "seed": 1,
-                "split": {"train_fraction": 0.5, "val_fraction": 0.2, "test_fraction": 0.3},
+                "split": {"val_fraction": 0.3},
                 "data": {
-                    "data_root": str(self.labeled_root),
-                    "label_meta": str(self.labeled_meta_path),
-                    "dataset_type": "internal",
+                    "data_root": {"internal": str(self.labeled_root), "external": str(self.external_root)},
+                    "label_meta": {"internal": str(self.labeled_meta_path), "external": str(self.external_meta_path)},
+                    "test_sets": ["internal"],
                     "series_depth": 0,
                     "num_workers": 0,
                     **(data or {}),
@@ -102,8 +108,8 @@ class EvalClassificationCliTest(unittest.TestCase):
     def test_cli_runs_and_refuses_to_overwrite_results(self):
         config_path = self._write_config()
         metrics = self._run(config_path)
-        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
-        self.assertTrue(any(k.startswith("linear") for k in metrics), metrics)
+        self.assertTrue(any(k.startswith("internal/knn/") for k in metrics), metrics)
+        self.assertTrue(any(k.startswith("internal/linear/") for k in metrics), metrics)
         params = yaml.safe_load((self.out / "params.yaml").read_text())
         self.assertEqual(params["cli"]["checkpoint"], str(self.checkpoint_path))
         self.assertEqual(params["model"], {"arch": ARCH})
@@ -113,28 +119,20 @@ class EvalClassificationCliTest(unittest.TestCase):
     def test_image_size_override_interpolates_positional_embedding(self):
         config_path = self._write_config(transform={"image_size": 48, "crop_foreground": False})
         metrics = self._run(config_path, tasks=("knn",))
-        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
+        self.assertTrue(any(k.startswith("internal/knn/") for k in metrics), metrics)
 
-    def test_external_dataset_runs(self):
+    def test_external_test_set_runs(self):
         # Every external sequence is stored in its own orientation; the adapter reorients each to RAS.
-        data = {
-            "data_root": str(self.external_root),
-            "label_meta": str(self.external_meta_path),
-            "dataset_type": "external",
-        }
-        metrics = self._run(self._write_config(data=data), tasks=("knn",))
-        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
+        metrics = self._run(self._write_config(data={"test_sets": ["external"]}), tasks=("knn",))
+        self.assertTrue(any(k.startswith("external/knn/") for k in metrics), metrics)
 
-    def test_mixed_dataset_runs(self):
-        # Train/val on the internal exams, test on the external ones: the adapter scales each by its own source.
-        data = {
-            "data_root": {"internal": str(self.labeled_root), "external": str(self.external_root)},
-            "label_meta": {"internal": str(self.labeled_meta_path), "external": str(self.external_meta_path)},
-            "dataset_type": "mixed",
-        }
-        metrics = self._run(self._write_config(data=data))
-        self.assertTrue(any(k.startswith("knn") for k in metrics), metrics)
-        self.assertTrue(any(k.startswith("linear") for k in metrics), metrics)
+    def test_both_test_sets_run(self):
+        # Train/val on internal exams, test on internal and external ones: the adapter scales each by its own source.
+        metrics = self._run(self._write_config(data={"test_sets": ["internal", "external"]}))
+        for test_set in ("internal", "external"):
+            self.assertTrue(any(k.startswith(f"{test_set}/knn/") for k in metrics), metrics)
+            self.assertTrue(any(k.startswith(f"{test_set}/linear/") for k in metrics), metrics)
+        self.assertIn("evaluation_val/linear/val_auroc", metrics)
 
     def test_loads_every_backbone_weight_and_drops_the_heads(self):
         state_dict = load_backbone_state_dict(self.checkpoint_path)
