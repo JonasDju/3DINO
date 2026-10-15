@@ -32,6 +32,7 @@ eval:
   training:
     early_stop_on: auroc  # val metric that picks each head's best epoch
     early_stop_patience: 5  # head epochs without a val improvement before stopping; 0 = never stop early
+    loss: BCE
   verbose: true  # log each task's start and every head epoch's val metrics
   data:
     # internal: global "train" (the heads' train/val) + "val" (the "internal" test set); external: global "test".
@@ -63,20 +64,30 @@ eval:
     center: true  # subtract each sequence's mean feature before the per-sequence L2 normalisation
     batch_size: 32  # exams -> 128 volumes per encoder forward
   linear:
-    batchnorm: true  # non-affine BatchNorm1d (z-score) in front of the linear layer
+    pooling: avg
+    batchnorm: true
     max_epochs: 50
-    batch_size: 32  # exams
-    lr: 0.001
+    batch_size: 64
+    lr: 0.0015
+    warmup_epochs: 10
+    weight_decay: 0.0
   linear_pool:
     pooling: avg
     batchnorm: true
     max_epochs: 50
-    batch_size: 32  # exams
-    lr: 0.001
+    batch_size: 64
+    lr: 0.0015
+    warmup_epochs: 10
+    weight_decay: 0.0
   attentive_pool:
-    depth: 1
-    num_heads: 16  # must divide embed_dim (1024 for ViT-L): KneeNo's default of 12 does not
-    max_epochs: 20
-    batch_size: 16  # exams
+    q2l: false
+    patch_sa_depth: 0
+    qa_depth: 1
+    num_heads: 16
+    mlp_ratio: 4.0
+    qkv_bias: true
+    complete_block: true
+    max_epochs: 50
+    batch_size: 16
     lr: 0.0005
-    warmup_epochs: 5
+    warmup_epochs: 10
