@@ -1,0 +1,22 @@
+[project]
+name = "3dino"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fvcore>=0.1.5.post20221221",
+    "kneeno",
+    "monai>=1.6.1",
+    "nibabel>=5.4.2",
+    "omegaconf>=2.3.1",
+    "scikit-learn>=1.9.1",
+    # torch is pinned to the version the xformers wheel is compiled against: with any other torch, xformers'
+    # extensions fail to load and every memory_efficient_attention call raises on the GPU
+    "torch==2.10.*",
+    "torchio>=1.2.1",
+    "torchmetrics>=1.0",
+    "torchvision==0.25.*",  # the release matching torch 2.10
+    "xformers==0.0.35",  # compiled against torch 2.10 + CUDA 12.8; bump together with torch
+]
+
+[tool.uv.sources]
+kneeno = { path = "../KneeNo", editable = true }

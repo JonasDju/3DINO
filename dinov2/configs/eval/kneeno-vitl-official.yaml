@@ -1,0 +1,93 @@
+# Standalone KneeNo classification evaluation of 3DINO (dinov2/eval/kneeno_classification.py), set up for the
+# official ViT-L weights (3dino_vit_weights.pth).
+
+# Architecture, with the key names of 3DINO's student: config block. Every key is optional: an omitted key falls
+# back to dinov2/configs/ssl3d_default_config.yaml, whose values are written out below (they match the official
+# weights). A key that does not exist there raises. For a self-trained run, copy the student: block of the run's
+# <output_dir>/config.yaml. The pretraining crop size (img_size) is not set here: it is read from the checkpoint's
+# positional embedding (112 for the official weights). Loading is strict, so a mismatch fails loudly.
+model:
+  arch: vit_large_3d  # vit_base_3d | vit_large_3d -- sets embed_dim / depth / num_heads, which the checkpoint can't tell
+  patch_size: 16
+  block_chunks: 4
+  ffn_layer: mlp
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  layerscale: 1.0e-05  # only whether LayerScale exists matters (null/0 -> none); its weights come from the checkpoint
+
+# Preprocessing (DINO3DAdapter): scale to [-1, 1], crop to the foreground, resize to an image_size^3 cube
+transform:
+  image_size: null  # cube edge length; null -> the checkpoint's pretraining crop size (no positional embedding interpolation)
+  crop_foreground: true
+
+# KneeNo classification evaluation -- see KneeNo/kneeno/evaluation/config.py for every key
+eval:
+  seed: 239
+  amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
+  cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
+                        # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
+  split:  # the internal global "train" split is cut into train and val; the test sets are used whole
+    val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
+  training:
+    early_stop_on: auroc  # val metric that picks each head's best epoch
+    early_stop_patience: 5  # head epochs without a val improvement before stopping; 0 = never stop early
+    loss: BCE
+  verbose: true  # log each task's start and every head epoch's val metrics
+  data:
+    # internal: global "train" (the heads' train/val) + "val" (the "internal" test set); external: global "test".
+    # $TMP/kneeno_data/external comes from KneeNo's prepare_data.py --external-tar.
+    data_root: {internal: $TMP/kneeno_data/internal, external: $TMP/kneeno_data/external}
+    label_meta:
+      internal: /hpcwork/p0021834/workspace_roman/jonas/metadata/internal_labeled.json
+      external: /hpcwork/p0021834/workspace_roman/jonas/metadata/external_labeled.json
+    test_sets: [internal, external]  # heads are trained once and scored on both
+    series_depth: 0  # 3DINO was trained on the raw volumes
+    num_workers: 31
+    subset: 1.0  # seeded subsample of the internal "train" EXAMS (test sets always whole): float in (0, 1] = fraction, int > 1 = count, 1.0 = all
+    abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by another exam
+    multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
+    persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
+  logging:
+    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
+    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
+    tag_prefix: eval
+  freq:  # all 1: the standalone script runs one evaluation (epoch 0); --tasks picks the subset
+    knn: 1
+    linear: 1  # 3DINO has a cls token, so the linear task is available (unlike V-JEPA 2.1)
+    linear_pool: 1
+    attentive_pool: 1
+  knn:
+    k: [5, 20, 50, 100]
+    metric: cosine
+    temperature: 0.07
+    center: true  # subtract each sequence's mean feature before the per-sequence L2 normalisation
+    batch_size: 32  # exams -> 128 volumes per encoder forward
+  linear:
+    pooling: avg
+    batchnorm: true
+    max_epochs: 50
+    batch_size: 64
+    lr: 0.0015
+    warmup_epochs: 10
+    weight_decay: 0.0
+  linear_pool:
+    pooling: avg
+    batchnorm: true
+    max_epochs: 50
+    batch_size: 64
+    lr: 0.0015
+    warmup_epochs: 10
+    weight_decay: 0.0
+  attentive_pool:
+    q2l: false
+    patch_sa_depth: 0
+    qa_depth: 1
+    num_heads: 16
+    mlp_ratio: 4.0
+    qkv_bias: true
+    complete_block: true
+    max_epochs: 50
+    batch_size: 16
+    lr: 0.0005
+    warmup_epochs: 10
