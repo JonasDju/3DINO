@@ -74,7 +74,7 @@ class EvalClassificationCliTest(unittest.TestCase):
     def setUp(self):
         self.out = Path(tempfile.mkdtemp(dir=self.root))
 
-    def _write_config(self, model=None, transform=None, data=None):
+    def _write_config(self, model=None, transform=None, data=None, tasks=("knn", "linear")):
         config = {
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
@@ -92,6 +92,7 @@ class EvalClassificationCliTest(unittest.TestCase):
                     "tensorboard_dir": str(self.out / "tb"),
                     "per_label_dir": str(self.out / "per_label"),
                 },
+                "freq": {task: 1 for task in tasks},
                 "knn": {"k": [3], "batch_size": 4},
                 "linear": {"max_epochs": 2, "batch_size": 4},
             },
@@ -102,8 +103,8 @@ class EvalClassificationCliTest(unittest.TestCase):
         path.write_text(yaml.dump(config))
         return path
 
-    def _run(self, config_path, tasks=("knn", "linear")):
-        return main(["--config", str(config_path), "--checkpoint", str(self.checkpoint_path), "--tasks", *tasks])
+    def _run(self, config_path):
+        return main(["--config", str(config_path), "--checkpoint", str(self.checkpoint_path)])
 
     def test_cli_runs_and_refuses_to_overwrite_results(self):
         config_path = self._write_config()
@@ -116,14 +117,21 @@ class EvalClassificationCliTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already exist"):
             self._run(config_path)
 
+    def test_only_tasks_with_a_frequency_run(self):
+        metrics = self._run(self._write_config(tasks=("knn",)))
+        self.assertTrue(any(k.startswith("internal/knn/") for k in metrics), metrics)
+        self.assertFalse(any("/linear/" in k for k in metrics), metrics)
+        with self.assertRaisesRegex(ValueError, "No task is enabled"):
+            self._run(self._write_config(tasks=()))
+
     def test_image_size_override_interpolates_positional_embedding(self):
-        config_path = self._write_config(transform={"image_size": 48, "crop_foreground": False})
-        metrics = self._run(config_path, tasks=("knn",))
+        config_path = self._write_config(transform={"image_size": 48, "crop_foreground": False}, tasks=("knn",))
+        metrics = self._run(config_path)
         self.assertTrue(any(k.startswith("internal/knn/") for k in metrics), metrics)
 
     def test_external_test_set_runs(self):
         # Every external sequence is stored in its own orientation; the adapter reorients each to RAS.
-        metrics = self._run(self._write_config(data={"test_sets": ["external"]}), tasks=("knn",))
+        metrics = self._run(self._write_config(data={"test_sets": ["external"]}, tasks=("knn",)))
         self.assertTrue(any(k.startswith("external/knn/") for k in metrics), metrics)
 
     def test_both_test_sets_run(self):

@@ -6,6 +6,7 @@ Loads the frozen teacher backbone from a 3DINO checkpoint -- the official weight
 ``{"teacher": {"backbone.*": ..., "dino_head.*": ..., ...}}``) -- and hands it to
 ``kneeno.evaluation.ClassificationEvaluator``, which logs each task's metrics once per test set
 (``eval.data.test_sets``; heads early-stopped on the val split). The counterpart of vjepa2's ``app/vjepa_2_1/eval_classification.py``.
+Every task with a non-null ``eval.freq`` > 0 runs once (as in curia's and lightly-train's standalone evaluations).
 
 The config file has three blocks:
 
@@ -25,7 +26,6 @@ Usage (from the repository root)::
     .venv/bin/python -m dinov2.eval.kneeno_classification \\
         --config dinov2/configs/eval/kneeno-vitl-official.yaml \\
         --checkpoint /path/to/3dino_vit_weights.pth \\
-        --tasks knn linear linear_pool attentive_pool \\
         --device cuda:0
 """
 
@@ -38,7 +38,7 @@ from pathlib import Path
 import torch
 import yaml
 from kneeno.config import expand_env_vars
-from kneeno.evaluation import ClassificationEvaluator
+from kneeno.evaluation import ClassificationEvaluator, load_eval_config
 from kneeno.evaluation.config import ALL_TASKS
 from omegaconf import OmegaConf
 
@@ -55,17 +55,18 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", type=str, required=True, help="config file (model + transform + eval blocks)")
     parser.add_argument("--checkpoint", type=str, required=True, help="path to a 3DINO teacher checkpoint (.pth)")
-    parser.add_argument(
-        "--tasks",
-        type=str,
-        nargs="+",
-        default=None,
-        choices=list(ALL_TASKS),
-        help="subset of tasks to run; defaults to every task the model supports (the slice tasks need a "
-        "slice-wise 2D model and are left out)",
-    )
     parser.add_argument("--device", type=str, default="cpu", help="e.g. 'cpu' or 'cuda:0'")
     return parser.parse_args(argv)
+
+
+def enabled_tasks(freq):
+    """The tasks whose frequency is set, with ``kneeno.tasks_due``'s semantics: a missing key keeps KneeNo's
+    default (``freq`` is the merged config), null or ``<= 0`` is off. There is only one evaluation, so the value
+    itself does not matter."""
+    tasks = [task for task in ALL_TASKS if freq.get(task) is not None and freq[task] > 0]
+    if not tasks:
+        raise ValueError(f"No task is enabled: every task in eval.freq is null or <= 0 ({freq}).")
+    return tasks
 
 
 def load_backbone_state_dict(checkpoint_path):
@@ -145,7 +146,7 @@ def save_params(config, args):
         return
     label_dir = Path(label_dir).parent
     label_dir.mkdir(parents=True, exist_ok=True)
-    params = {**config, "cli": {"checkpoint": args.checkpoint, "tasks": args.tasks, "device": args.device}}
+    params = {**config, "cli": {"checkpoint": args.checkpoint, "device": args.device}}
     with open(label_dir / "params.yaml", "w") as f:
         yaml.dump(params, f)
 
@@ -165,6 +166,7 @@ def main(argv=None):
     cfg_eval = config.get("eval")
     if cfg_eval is None:
         raise ValueError(f"{args.config} has no 'eval:' block")
+    tasks = enabled_tasks(load_eval_config(cfg_eval)["freq"])
     cfg_transform = {**TRANSFORM_DEFAULTS, **(config.get("transform") or {})}
     unknown = set(cfg_transform) - set(TRANSFORM_DEFAULTS)
     if unknown:
@@ -178,7 +180,7 @@ def main(argv=None):
     img_size = infer_img_size(state_dict, patch_size)
     backbone = build_backbone(config.get("model"), img_size)
     backbone = load_frozen_backbone(backbone, state_dict).to(device)
-    logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size})")
+    logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size}), tasks {tasks}")
 
     image_size = cfg_transform["image_size"] or img_size
     if image_size != img_size:
@@ -193,7 +195,7 @@ def main(argv=None):
 
     evaluator = ClassificationEvaluator(config=cfg_eval, adapter=adapter, device=device)
     try:
-        metrics = evaluator.evaluate(backbone, tasks=args.tasks, epoch=0)
+        metrics = evaluator.evaluate(backbone, tasks=tasks, epoch=0)
     finally:
         # Flush+close the TensorBoard writer so buffered scalars are not lost if the process exits right after
         evaluator.cleanup()

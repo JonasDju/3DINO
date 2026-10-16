@@ -52,7 +52,7 @@ eval:
     tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
     per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
     tag_prefix: eval
-  freq:  # all 1: the standalone script runs one evaluation (epoch 0); --tasks picks the subset
+  freq:  # the standalone script runs one evaluation (epoch 0) of every task set here (null or <= 0 -> off)
     knn: 1
     linear: 1  # 3DINO has a cls token, so the linear task is available (unlike V-JEPA 2.1)
     linear_pool: 1
