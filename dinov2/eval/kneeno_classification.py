@@ -180,7 +180,8 @@ def main(argv=None):
     img_size = infer_img_size(state_dict, patch_size)
     backbone = build_backbone(config.get("model"), img_size)
     backbone = load_frozen_backbone(backbone, state_dict).to(device)
-    logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size}), tasks {tasks}")
+    logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size})")
+    logger.info(f"evaluating tasks {tasks}")
 
     image_size = cfg_transform["image_size"] or img_size
     if image_size != img_size:
