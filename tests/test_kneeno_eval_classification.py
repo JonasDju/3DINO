@@ -93,7 +93,8 @@ class EvalClassificationCliTest(unittest.TestCase):
                     "per_label_dir": str(self.out / "per_label"),
                 },
                 "freq": {task: 1 for task in tasks},
-                "knn": {"k": [3], "batch_size": 4},
+                "knn": {"k": [3]},
+                "extraction_batch_size": 4,
                 "linear": {"max_epochs": 2, "batch_size": 4},
             },
         }

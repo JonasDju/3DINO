@@ -27,6 +27,7 @@ eval:
   amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
   cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
                         # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
+  extraction_batch_size: 32  # exams -> at most 128 volumes per encoder forward (cache pass and re-encoding heads)
   split:  # the internal global "train" split is cut into train and val; the test sets are used whole
     val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
   training:
@@ -44,6 +45,7 @@ eval:
     test_sets: [internal, external]  # heads are trained once and scored on both
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
+    prefetch_factor: 2  # batches each worker loads ahead; worker RAM in flight ~ num_workers * prefetch_factor batches
     subset: 1.0  # seeded subsample of the internal "train" EXAMS (test sets always whole): float in (0, 1] = fraction, int > 1 = count, 1.0 = all
     abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by another exam
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
@@ -62,12 +64,12 @@ eval:
     metric: cosine
     temperature: 0.07
     center: true  # subtract each sequence's mean feature before the per-sequence L2 normalisation
-    batch_size: 32  # exams -> 128 volumes per encoder forward
   linear:
     pooling: avg
     batchnorm: true
     max_epochs: 50
     batch_size: 64
+    grad_accum_steps: 1  # must stay 1 with batchnorm: true
     lr: 0.0015
     warmup_epochs: 10
     weight_decay: 0.0
@@ -76,6 +78,7 @@ eval:
     batchnorm: true
     max_epochs: 50
     batch_size: 64
+    grad_accum_steps: 1  # must stay 1 with batchnorm: true
     lr: 0.0015
     warmup_epochs: 10
     weight_decay: 0.0
@@ -89,5 +92,6 @@ eval:
     complete_block: true
     max_epochs: 50
     batch_size: 16
+    grad_accum_steps: 1  # memory only: the head trains on micro-batches of batch_size / grad_accum_steps exams
     lr: 0.0005
     warmup_epochs: 10
