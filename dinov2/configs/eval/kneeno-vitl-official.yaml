@@ -25,6 +25,9 @@ transform:
 eval:
   seed: 239
   amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
+  # torch.compile the frozen encoder's forward (one graph per batch shape): faster (Curia-B: 1.5x), the features
+  # differ by float rounding only.
+  compile_encoder: true
   cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
                         # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
   extraction_batch_size: 32  # exams -> at most 128 volumes per encoder forward (cache pass and re-encoding heads)
@@ -32,7 +35,7 @@ eval:
     val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
   training:
     early_stop_on: auroc  # val metric that picks each head's best epoch
-    early_stop_patience: 5  # head epochs without a val improvement before stopping; 0 = never stop early
+    early_stop_patience_global: 0  # head epochs without a val improvement before stopping; 0 = never stop early; overridable per task
     loss: BCE
   verbose: true  # log each task's start and every head epoch's val metrics
   data:
@@ -91,6 +94,7 @@ eval:
     qkv_bias: true
     complete_block: true
     max_epochs: 50
+    early_stop_patience: 10  # overrides training.early_stop_patience_global (re-encoding head, no feature cache)
     batch_size: 16
     grad_accum_steps: 1  # memory only: the head trains on micro-batches of batch_size / grad_accum_steps exams
     lr: 0.0005
