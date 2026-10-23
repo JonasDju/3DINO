@@ -24,17 +24,21 @@ transform:
 # KneeNo classification evaluation -- see KneeNo/kneeno/evaluation/config.py for every key
 eval:
   seed: 239
-  amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32. Heads still train in float32.
+  encoder_amp_dtype: bfloat16  # frozen-encoder forward under autocast (CUDA only); null -> float32
+  head_amp_dtype: null  # trained heads' forward under autocast (CUDA only): bfloat16 | null (float32)
   # torch.compile the frozen encoder's forward (one graph per batch shape): faster (Curia-B: 1.5x), the features
   # differ by float rounding only.
   compile_encoder: true
+  # torch.compile the attentive heads' forward (one graph per micro-batch shape): faster, the results
+  # differ by float rounding only.
+  compile_attentive_heads: true
   cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
                         # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
   extraction_batch_size: 32  # exams -> at most 128 volumes per encoder forward (cache pass and re-encoding heads)
   split:  # the internal global "train" split is cut into train and val; the test sets are used whole
     val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
   training:
-    early_stop_on: auroc  # val metric that picks each head's best epoch
+    monitor_metric: auroc  # val metric that picks each head's best epoch and lr, and k-NN's temperature
     early_stop_patience_global: 0  # head epochs without a val improvement before stopping; 0 = never stop early; overridable per task
     loss: BCE
   verbose: true  # log each task's start and every head epoch's val metrics
@@ -65,7 +69,8 @@ eval:
   knn:
     k: [5, 20, 50, 100]
     metric: cosine
-    temperature: 0.07
+    temperature: [0.01, 0.02, 0.05, 0.07, 0.1, 0.2, 0.5, 1.0]  # swept: each k uses its best val temperature
+    pooling: avg
     center: true  # subtract each sequence's mean feature before the per-sequence L2 normalisation
   linear:
     pooling: avg
@@ -73,7 +78,7 @@ eval:
     max_epochs: 50
     batch_size: 64
     grad_accum_steps: 1  # must stay 1 with batchnorm: true
-    lr: 0.0015
+    lr: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
     warmup_epochs: 10
     weight_decay: 0.0
   linear_pool:
@@ -82,7 +87,7 @@ eval:
     max_epochs: 50
     batch_size: 64
     grad_accum_steps: 1  # must stay 1 with batchnorm: true
-    lr: 0.0015
+    lr: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
     warmup_epochs: 10
     weight_decay: 0.0
   attentive_pool:
@@ -93,9 +98,9 @@ eval:
     mlp_ratio: 4.0
     qkv_bias: true
     complete_block: true
-    max_epochs: 50
-    early_stop_patience: 10  # overrides training.early_stop_patience_global (re-encoding head, no feature cache)
-    batch_size: 16
-    grad_accum_steps: 1  # memory only: the head trains on micro-batches of batch_size / grad_accum_steps exams
+    max_epochs: 15
+    early_stop_patience: 5  # overrides training.early_stop_patience_global (re-encoding head, no feature cache)
+    batch_size: 64
+    grad_accum_steps: 4  # memory only: the head trains on micro-batches of batch_size / grad_accum_steps = 16 exams
     lr: 0.0005
-    warmup_epochs: 10
+    warmup_epochs: 3
