@@ -38,8 +38,7 @@ from pathlib import Path
 import torch
 import yaml
 from kneeno.config import expand_env_vars
-from kneeno.evaluation import ClassificationEvaluator, load_eval_config
-from kneeno.evaluation.config import ALL_TASKS
+from kneeno.evaluation import ClassificationEvaluator, enabled_tasks, load_eval_config
 from omegaconf import OmegaConf
 
 from dinov2.configs import dinov2_default_config_3d
@@ -57,16 +56,6 @@ def parse_args(argv=None):
     parser.add_argument("--checkpoint", type=str, required=True, help="path to a 3DINO teacher checkpoint (.pth)")
     parser.add_argument("--device", type=str, default="cpu", help="e.g. 'cpu' or 'cuda:0'")
     return parser.parse_args(argv)
-
-
-def enabled_tasks(freq):
-    """The tasks whose frequency is set, with ``kneeno.tasks_due``'s semantics: a missing key keeps KneeNo's
-    default (``freq`` is the merged config), null or ``<= 0`` is off. There is only one evaluation, so the value
-    itself does not matter."""
-    tasks = [task for task in ALL_TASKS if freq.get(task) is not None and freq[task] > 0]
-    if not tasks:
-        raise ValueError(f"No task is enabled: every task in eval.freq is null or <= 0 ({freq}).")
-    return tasks
 
 
 def load_backbone_state_dict(checkpoint_path):
@@ -166,7 +155,10 @@ def main(argv=None):
     cfg_eval = config.get("eval")
     if cfg_eval is None:
         raise ValueError(f"{args.config} has no 'eval:' block")
-    tasks = enabled_tasks(load_eval_config(cfg_eval)["freq"])
+    freq = load_eval_config(cfg_eval)["freq"]
+    tasks = enabled_tasks(freq)
+    if not tasks:
+        raise ValueError(f"No task is enabled: every task in eval.freq is null or <= 0 ({freq}).")
     cfg_transform = {**TRANSFORM_DEFAULTS, **(config.get("transform") or {})}
     unknown = set(cfg_transform) - set(TRANSFORM_DEFAULTS)
     if unknown:
