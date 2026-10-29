@@ -18,10 +18,10 @@ The config file has three blocks:
   pretraining size) and ``crop_foreground``; see ``DINO3DAdapter``.
 - ``eval:`` KneeNo's evaluation config (see ``kneeno/evaluation/config.py::DEFAULT_EVAL_CONFIG``).
 
-Next to ``eval.logging.per_label_dir`` the script writes the expanded config and command line (``params.yaml``,
-after loading the checkpoint, before evaluating) and the final metrics (``results.json``, the format of curia's and
-lightly-train's standalone evaluations); without a ``per_label_dir``, only ``results.json``, next to the checkpoint.
-It refuses to start if earlier results exist.
+Next to ``eval.logging.per_label_dir`` the script writes the expanded config and command line (``params.yaml``, once
+the checkpoint, dataset and split are loaded, before evaluating) and the final metrics (``results.json``, the format
+of curia's and lightly-train's standalone evaluations); without a ``per_label_dir``, only ``results.json``, next to
+the checkpoint. It refuses to start if earlier results exist.
 
 ``FSDPCheckpointer``'s ``model_*.rank_*.pth`` training checkpoints are sharded and cannot be loaded here; use the
 ``<output_dir>/eval/training_<iteration>/teacher_checkpoint.pth`` written next to them.
@@ -201,9 +201,6 @@ def main(argv=None):
     backbone = build_backbone(config.get("model"), img_size)
     backbone = load_frozen_backbone(backbone, state_dict).to(device)
     logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size})")
-    # After the strict load (a config it rejects must not leave a params.yaml that makes the corrected rerun
-    # refuse), but before evaluating, so a run that crashes still records its settings
-    save_params(config, args, params_path)
     logger.info(f"evaluating tasks {tasks}")
 
     image_size = cfg_transform["image_size"] or img_size
@@ -218,6 +215,10 @@ def main(argv=None):
     )
 
     evaluator = ClassificationEvaluator(config=cfg_eval, adapter=adapter, device=device)
+    # After everything that fails fast (the checks, the strict load, and the dataset and split the evaluator builds):
+    # a config they reject must not leave a params.yaml that makes the corrected rerun refuse. But before evaluating,
+    # so a run that crashes still records its settings
+    save_params(config, args, params_path)
     try:
         metrics = evaluator.evaluate(backbone, tasks=tasks, epoch=0)
     finally:

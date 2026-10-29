@@ -184,6 +184,16 @@ class EvalClassificationCliTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown transform"):
             self._run(self._write_config(transform={"img_size": 64}))
 
+    def test_split_error_leaves_no_params(self):
+        # The evaluator builds the dataset and the split; a config they reject leaves nothing that blocks the rerun.
+        config = yaml.safe_load(self._write_config(tasks=("knn",)).read_text())
+        config["eval"]["split"]["rep"] = 99
+        config_path = self.out / "config.yaml"
+        config_path.write_text(yaml.dump(config))
+        with self.assertRaisesRegex(ValueError, "no split with level"):
+            self._run(config_path)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["config.yaml"])
+
     def test_wrong_architecture_fails_the_strict_load(self):
         with self.assertRaisesRegex(RuntimeError, "does not match the architecture"):
             self._run(self._write_config(model={"arch": "vit_large_3d"}))
