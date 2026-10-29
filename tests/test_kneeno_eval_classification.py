@@ -7,11 +7,13 @@ parsing, architecture reconstruction, strict checkpoint loading and the standalo
 Run from the repository root: ``.venv/bin/python -m unittest tests.test_kneeno_eval_classification -v``
 """
 
+import json
 import os
 
 # xFormers' kernels are CUDA-only; must be set before dinov2.layers is imported
 os.environ["XFORMERS_DISABLED"] = "1"
 
+import shutil
 import sys
 import tempfile
 import unittest
@@ -78,7 +80,7 @@ class EvalClassificationCliTest(unittest.TestCase):
     def setUp(self):
         self.out = Path(tempfile.mkdtemp(dir=self.root))
 
-    def _write_config(self, model=None, transform=None, data=None, tasks=("knn", "linear")):
+    def _write_config(self, model=None, transform=None, data=None, tasks=("knn", "linear"), per_label_dir=True):
         config = {
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
@@ -94,7 +96,7 @@ class EvalClassificationCliTest(unittest.TestCase):
                 },
                 "logging": {
                     "tensorboard_dir": str(self.out / "tb"),
-                    "per_label_dir": str(self.out / "per_label"),
+                    "per_label_dir": str(self.out / "per_label") if per_label_dir else None,
                 },
                 "freq": {task: 1 for task in tasks},
                 "knn": {"k": [3]},
@@ -108,8 +110,8 @@ class EvalClassificationCliTest(unittest.TestCase):
         path.write_text(yaml.dump(config))
         return path
 
-    def _run(self, config_path):
-        return main(["--config", str(config_path), "--checkpoint", str(self.checkpoint_path)])
+    def _run(self, config_path, checkpoint_path=None):
+        return main(["--config", str(config_path), "--checkpoint", str(checkpoint_path or self.checkpoint_path)])
 
     def test_cli_runs_and_refuses_to_overwrite_results(self):
         config_path = self._write_config()
@@ -119,8 +121,22 @@ class EvalClassificationCliTest(unittest.TestCase):
         params = yaml.safe_load((self.out / "params.yaml").read_text())
         self.assertEqual(params["cli"]["checkpoint"], str(self.checkpoint_path))
         self.assertEqual(params["model"], {"arch": ARCH})
+        self.assertEqual(json.loads((self.out / "results.json").read_text()), metrics)
         with self.assertRaisesRegex(ValueError, "already exist"):
             self._run(config_path)
+        # results.json alone is enough to refuse
+        for name in ("tb", "per_label", "params.yaml"):
+            shutil.rmtree(self.out / name) if (self.out / name).is_dir() else (self.out / name).unlink()
+        with self.assertRaisesRegex(ValueError, "already exist.*results.json"):
+            self._run(config_path)
+
+    def test_results_go_next_to_the_checkpoint_without_per_label_dir(self):
+        checkpoint_path = self.out / "checkpoint" / self.checkpoint_path.name
+        checkpoint_path.parent.mkdir()
+        shutil.copy(self.checkpoint_path, checkpoint_path)
+        metrics = self._run(self._write_config(tasks=("knn",), per_label_dir=False), checkpoint_path)
+        self.assertEqual(json.loads((checkpoint_path.parent / "results.json").read_text()), metrics)
+        self.assertFalse((self.out / "params.yaml").exists())
 
     def test_only_tasks_with_a_frequency_run(self):
         metrics = self._run(self._write_config(tasks=("knn",)))
@@ -171,6 +187,8 @@ class EvalClassificationCliTest(unittest.TestCase):
     def test_wrong_architecture_fails_the_strict_load(self):
         with self.assertRaisesRegex(RuntimeError, "does not match the architecture"):
             self._run(self._write_config(model={"arch": "vit_large_3d"}))
+        # no params.yaml left behind that would make the corrected rerun refuse
+        self.assertFalse((self.out / "params.yaml").exists())
 
     def test_missing_teacher_entry_is_rejected(self):
         path = self.out / "not_a_teacher_checkpoint.pth"

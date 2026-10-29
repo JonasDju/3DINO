@@ -18,6 +18,11 @@ The config file has three blocks:
   pretraining size) and ``crop_foreground``; see ``DINO3DAdapter``.
 - ``eval:`` KneeNo's evaluation config (see ``kneeno/evaluation/config.py::DEFAULT_EVAL_CONFIG``).
 
+Next to ``eval.logging.per_label_dir`` the script writes the expanded config and command line (``params.yaml``,
+after loading the checkpoint, before evaluating) and the final metrics (``results.json``, the format of curia's and
+lightly-train's standalone evaluations); without a ``per_label_dir``, only ``results.json``, next to the checkpoint.
+It refuses to start if earlier results exist.
+
 ``FSDPCheckpointer``'s ``model_*.rank_*.pth`` training checkpoints are sharded and cannot be loaded here; use the
 ``<output_dir>/eval/training_<iteration>/teacher_checkpoint.pth`` written next to them.
 
@@ -30,6 +35,7 @@ Usage (from the repository root)::
 """
 
 import argparse
+import json
 import logging
 import os
 import pprint
@@ -118,26 +124,48 @@ def load_frozen_backbone(backbone, state_dict):
     return backbone
 
 
-def check_results_dirs(cfg_eval):
-    """Abort if a previous evaluation already wrote to the configured output directories."""
-    cfg_logging = cfg_eval.get("logging") or {}
-    for key in ("tensorboard_dir", "per_label_dir"):
-        path = cfg_logging.get(key)
-        if path is not None and Path(path).exists():
-            raise ValueError(f"Evaluation results already exist at eval.logging.{key} ({path})")
+def get_output_paths(cfg_eval, checkpoint_path):
+    """``results.json`` and ``params.yaml`` in the parent of ``eval.logging.per_label_dir``.
 
-
-def save_params(config, args):
-    """Save the config and the command line to the parent of ``eval.logging.per_label_dir`` as ``params.yaml``."""
-    label_dir = (config["eval"].get("logging") or {}).get("per_label_dir")
+    Without a ``per_label_dir`` there is no evaluation folder: ``results.json`` goes next to the checkpoint and no
+    ``params.yaml`` is written (as in lightly-train's standalone evaluation).
+    """
+    label_dir = (cfg_eval.get("logging") or {}).get("per_label_dir")
     if label_dir is None:
-        logger.warning("eval.logging.per_label_dir not set, not saving the evaluation params to disk")
+        results_path = Path(checkpoint_path).resolve().parent / "results.json"
+        logger.warning(
+            f"eval.logging.per_label_dir not set: writing the metrics to {results_path} and not saving the "
+            "evaluation params to disk"
+        )
+        return results_path, None
+    out_dir = Path(label_dir).resolve().parent
+    return out_dir / "results.json", out_dir / "params.yaml"
+
+
+def check_no_previous_results(cfg_eval, results_path, params_path):
+    """Abort if a previous evaluation already wrote to the configured outputs."""
+    cfg_logging = cfg_eval.get("logging") or {}
+    paths = [results_path, params_path, cfg_logging.get("tensorboard_dir"), cfg_logging.get("per_label_dir")]
+    existing = [str(path) for path in paths if path is not None and Path(path).exists()]
+    if existing:
+        raise ValueError(f"Evaluation results already exist: {existing}")
+
+
+def save_params(config, args, params_path):
+    """Save the config and the command line as ``params.yaml`` (nothing without a ``per_label_dir``)."""
+    if params_path is None:
         return
-    label_dir = Path(label_dir).parent
-    label_dir.mkdir(parents=True, exist_ok=True)
+    params_path.parent.mkdir(parents=True, exist_ok=True)
     params = {**config, "cli": {"checkpoint": args.checkpoint, "device": args.device}}
-    with open(label_dir / "params.yaml", "w") as f:
+    with open(params_path, "w") as f:
         yaml.dump(params, f)
+
+
+def save_results(metrics, results_path):
+    """Save the final metrics as ``results.json``, in the format of curia's and lightly-train's standalone evals."""
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(json.dumps(metrics, indent=2, sort_keys=True))
+    logger.info(f"wrote the metrics to {results_path}")
 
 
 def main(argv=None):
@@ -164,8 +192,8 @@ def main(argv=None):
     if unknown:
         raise ValueError(f"unknown transform: keys {sorted(unknown)}, expected a subset of {list(TRANSFORM_DEFAULTS)}")
 
-    check_results_dirs(cfg_eval)
-    save_params(config, args)
+    results_path, params_path = get_output_paths(cfg_eval, args.checkpoint)
+    check_no_previous_results(cfg_eval, results_path, params_path)
 
     state_dict = load_backbone_state_dict(args.checkpoint)
     patch_size = (config.get("model") or {}).get("patch_size", dinov2_default_config_3d.student.patch_size)
@@ -173,6 +201,9 @@ def main(argv=None):
     backbone = build_backbone(config.get("model"), img_size)
     backbone = load_frozen_backbone(backbone, state_dict).to(device)
     logger.info(f"loaded the teacher backbone from {args.checkpoint} (pretraining crop size {img_size})")
+    # After the strict load (a config it rejects must not leave a params.yaml that makes the corrected rerun
+    # refuse), but before evaluating, so a run that crashes still records its settings
+    save_params(config, args, params_path)
     logger.info(f"evaluating tasks {tasks}")
 
     image_size = cfg_transform["image_size"] or img_size
@@ -195,6 +226,7 @@ def main(argv=None):
 
     logger.info("final metrics: %s", metrics)
     pprint.pprint(metrics)
+    save_results(metrics, results_path)
     return metrics
 
 
