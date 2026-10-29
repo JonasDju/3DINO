@@ -35,8 +35,10 @@ eval:
   cache_features: true  # linear / linear_pool train on embeddings extracted once per evaluation instead of
                         # re-encoding every head epoch; k-NN always uses the shared pass. attentive_pool never caches.
   extraction_batch_size: 32  # exams -> at most 128 volumes per encoder forward (cache pass and re-encoding heads)
-  split:  # the internal global "train" split is cut into train and val; the test sets are used whole
-    val_fraction: 0.2  # heads are scored on val every head epoch (early stopping)
+  split:  # train and val: one split of the split manifest (KneeNo data/make_split_manifest.py); the test sets are used whole
+    manifest: /hpcwork/p0021834/workspace_roman/jonas/metadata/internal_split_manifest.json
+    level: ${SPLIT_LEVEL}  # fraction of the internal global "train" split used for train + val; one run per (level, rep) to report
+    rep: ${SPLIT_REP}  # which of the level's stratified draws (0 .. n_seeds - 1)
   training:
     monitor_metric: auroc  # val metric that picks each head's best epoch and lr, and k-NN's temperature
     early_stop_patience_global: 0  # head epochs without a val improvement before stopping; 0 = never stop early; overridable per task
@@ -53,13 +55,12 @@ eval:
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
     prefetch_factor: 2  # batches each worker loads ahead; worker RAM in flight ~ num_workers * prefetch_factor batches
-    subset: 1.0  # seeded subsample of the internal "train" EXAMS (test sets always whole): float in (0, 1] = fraction, int > 1 = count, 1.0 = all
     abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by another exam
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
   logging:
-    tensorboard_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/tb
-    per_label_dir: /hpcwork/va105917/3dino/<RUN>/eval/post-training/eval_per_label
+    tensorboard_dir: /hpcwork/va105917/3dino/eval/level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/tb
+    per_label_dir: /hpcwork/va105917/3dino/eval/level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/eval_per_label
     tag_prefix: eval
   freq:  # the standalone script runs one evaluation (epoch 0) of every task set here (null or <= 0 -> off)
     knn: 1

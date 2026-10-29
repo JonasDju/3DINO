@@ -20,6 +20,7 @@ from pathlib import Path
 import kneeno
 import torch
 import yaml
+from kneeno.evaluation.splits import write_manifest_for_metadata
 
 from dinov2.eval.kneeno_classification import (
     build_backbone,
@@ -66,6 +67,9 @@ class EvalClassificationCliTest(unittest.TestCase):
         )
         cls.external_root = cls.root / "external"
         cls.external_meta_path = make_labeled_dataset(cls.external_root, EXTERNAL_SPEC, h=20, w=24)
+        cls.manifest_path = write_manifest_for_metadata(
+            cls.labeled_meta_path, cls.root / "split_manifest.json", val_fraction=0.3
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -79,7 +83,7 @@ class EvalClassificationCliTest(unittest.TestCase):
             "model": {"arch": ARCH} if model is None else model,
             "eval": {
                 "seed": 1,
-                "split": {"val_fraction": 0.3},
+                "split": {"manifest": str(self.manifest_path), "level": 1.0, "rep": 0},
                 "data": {
                     "data_root": {"internal": str(self.labeled_root), "external": str(self.external_root)},
                     "label_meta": {"internal": str(self.labeled_meta_path), "external": str(self.external_meta_path)},
