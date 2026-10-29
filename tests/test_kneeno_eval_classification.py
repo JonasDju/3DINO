@@ -17,6 +17,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import kneeno
@@ -26,6 +27,7 @@ from kneeno.evaluation.splits import write_manifest_for_metadata
 
 from dinov2.eval.kneeno_classification import (
     build_backbone,
+    check_config_env,
     infer_img_size,
     load_backbone_state_dict,
     load_frozen_backbone,
@@ -192,6 +194,25 @@ class EvalClassificationCliTest(unittest.TestCase):
         config_path.write_text(yaml.dump(config))
         with self.assertRaisesRegex(ValueError, "no split with level"):
             self._run(config_path)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["config.yaml"])
+
+    def test_config_env_is_checked_up_front(self):
+        # expand_env_vars leaves an unset variable as it is, which would create a literal ${VAR} directory; and
+        # CONFIG_FILE_NAME (exported by the submit script) names the output folders, so it must name the config
+        config = yaml.safe_load(self._write_config(tasks=("knn",)).read_text())
+        config["eval"]["logging"]["per_label_dir"] = str(self.out / "type-${CONFIG_FILE_NAME}" / "per_label")
+        config_path = self.out / "config.yaml"
+        config_path.write_text(yaml.dump(config))
+        with mock.patch.dict(os.environ):
+            os.environ.pop("CONFIG_FILE_NAME", None)
+            with self.assertRaisesRegex(ValueError, r"not set: \['\$\{CONFIG_FILE_NAME\}'\]"):
+                self._run(config_path)
+            for wrong in ("query2label", "config.yaml"):  # another config, or the name with the .yaml
+                os.environ["CONFIG_FILE_NAME"] = wrong
+                with self.assertRaisesRegex(ValueError, "does not name the eval config"):
+                    self._run(config_path)
+            os.environ["CONFIG_FILE_NAME"] = "config"
+            check_config_env({"out": str(self.out)}, str(config_path))
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["config.yaml"])
 
     def test_wrong_architecture_fails_the_strict_load(self):

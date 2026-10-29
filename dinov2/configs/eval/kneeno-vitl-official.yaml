@@ -54,13 +54,15 @@ eval:
     test_sets: [internal, external]  # heads are trained once and scored on both
     series_depth: 0  # 3DINO was trained on the raw volumes
     num_workers: 31
-    prefetch_factor: 2  # batches each worker loads ahead; worker RAM in flight ~ num_workers * prefetch_factor batches
+    prefetch_factor: 1  # batches each worker loads ahead; worker RAM in flight ~ num_workers * prefetch_factor batches
     abort_on_io_error: true  # a broken exam is retried (5 s apart) and then raises; never replaced by another exam
     multiprocessing_context: fork  # eval DataLoader worker start method; null -> inherit. Workers must never touch CUDA
     persistent_workers: true  # keep workers alive across head epochs (ignored when num_workers = 0)
+  # One folder per (config variant, level, rep): dinov2/eval/submit_kneeno_classification.sh exports CONFIG_FILE_NAME
+  # (this file's name without the .yaml), SPLIT_LEVEL and SPLIT_REP.
   logging:
-    tensorboard_dir: /hpcwork/va105917/3dino/eval/level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/tb
-    per_label_dir: /hpcwork/va105917/3dino/eval/level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/eval_per_label
+    tensorboard_dir: /hpcwork/va105917/3dino/eval/type-${CONFIG_FILE_NAME}.level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/tb
+    per_label_dir: /hpcwork/va105917/3dino/eval/type-${CONFIG_FILE_NAME}.level-${SPLIT_LEVEL}.rep-${SPLIT_REP}/eval_per_label
     tag_prefix: eval
   freq:  # the standalone script runs one evaluation (epoch 0) of every task set here (null or <= 0 -> off)
     knn: 1
@@ -79,7 +81,7 @@ eval:
     max_epochs: 50
     batch_size: 64
     grad_accum_steps: 1  # must stay 1 with batchnorm: true
-    lr: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
+    lr: [0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
     warmup_epochs: 10
     weight_decay: 0.0
   linear_pool:
@@ -88,7 +90,7 @@ eval:
     max_epochs: 50
     batch_size: 64
     grad_accum_steps: 1  # must stay 1 with batchnorm: true
-    lr: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
+    lr: [0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02]  # swept: the best on val is tested
     warmup_epochs: 10
     weight_decay: 0.0
   attentive_pool:
@@ -103,5 +105,6 @@ eval:
     early_stop_patience: 5  # overrides training.early_stop_patience_global (re-encoding head, no feature cache)
     batch_size: 64
     grad_accum_steps: 4  # memory only: the head trains on micro-batches of batch_size / grad_accum_steps = 16 exams
-    lr: 0.0005
+    lr: 0.00025
     warmup_epochs: 3
+    weight_decay: 0.1

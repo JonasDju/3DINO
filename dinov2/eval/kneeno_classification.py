@@ -23,11 +23,17 @@ the checkpoint, dataset and split are loaded, before evaluating) and the final m
 of curia's and lightly-train's standalone evaluations); without a ``per_label_dir``, only ``results.json``, next to
 the checkpoint. It refuses to start if earlier results exist.
 
+Environment variables are expanded in every string value of the config; an unset one is an error. If
+``CONFIG_FILE_NAME`` is set (``submit_kneeno_classification.sh`` exports it, and the shipped config names its output
+folders with it), it must be the config's file name without the ``.yaml``.
+
 ``FSDPCheckpointer``'s ``model_*.rank_*.pth`` training checkpoints are sharded and cannot be loaded here; use the
 ``<output_dir>/eval/training_<iteration>/teacher_checkpoint.pth`` written next to them.
 
+Submit through ``dinov2/eval/submit_kneeno_classification.sh``; that also prepares the node-local data first.
 Usage (from the repository root)::
 
+    CONFIG_FILE_NAME=kneeno-vitl-official SPLIT_LEVEL=1.0 SPLIT_REP=0 TMP=... \\
     .venv/bin/python -m dinov2.eval.kneeno_classification \\
         --config dinov2/configs/eval/kneeno-vitl-official.yaml \\
         --checkpoint /path/to/3dino_vit_weights.pth \\
@@ -39,6 +45,7 @@ import json
 import logging
 import os
 import pprint
+import re
 from pathlib import Path
 
 import torch
@@ -54,6 +61,35 @@ logger = logging.getLogger("dinov2")
 
 # transform: keys and their defaults
 TRANSFORM_DEFAULTS = {"image_size": None, "crop_foreground": True}
+
+
+# What os.path.expandvars expands when the variable is set, i.e. what is left of an unset one
+_ENV_VAR_PATTERN = re.compile(r"\$(\{\w+\}|[A-Za-z_]\w*)")
+
+
+def check_config_env(config, config_path):
+    """Raise if the expanded config still uses an env var, or names another config than ``config_path``.
+
+    ``expand_env_vars`` leaves an unset variable as it is, which would create a literal ``${VAR}`` directory. The
+    submit script exports ``CONFIG_FILE_NAME``, the config's file name without the ``.yaml``, which names the output
+    folders: it must name this file.
+    """
+    unset = sorted(set(_find_env_vars(config)))
+    if unset:
+        raise ValueError(f"{config_path} uses environment variables that are not set: {unset}")
+    file_name = os.environ.get("CONFIG_FILE_NAME")
+    if file_name is not None and f"{file_name}.yaml" != Path(config_path).name:
+        raise ValueError(f"CONFIG_FILE_NAME={file_name!r} does not name the eval config {config_path}")
+
+
+def _find_env_vars(obj):
+    if isinstance(obj, dict):
+        return [var for value in obj.values() for var in _find_env_vars(value)]
+    if isinstance(obj, (list, tuple)):
+        return [var for value in obj for var in _find_env_vars(value)]
+    if isinstance(obj, str):
+        return [match.group(0) for match in _ENV_VAR_PATTERN.finditer(obj)]
+    return []
 
 
 def parse_args(argv=None):
@@ -179,6 +215,7 @@ def main(argv=None):
     with open(args.config, "r") as f:
         config = expand_env_vars(yaml.safe_load(f))
     logger.info("loaded config:\n%s", pprint.pformat(config))
+    check_config_env(config, args.config)
 
     cfg_eval = config.get("eval")
     if cfg_eval is None:

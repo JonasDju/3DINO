@@ -4,6 +4,8 @@ dist/
 **/__pycache__/
 .idea
 slurm*
+# The submit scripts' job logs: the folder is tracked (SLURM does not create it), its .gitignore ignores the logs
+!/slurm_logs/
 cufile.log
 
 **/.ipynb_checkpoints
