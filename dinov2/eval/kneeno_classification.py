@@ -40,22 +40,39 @@ Usage (from the repository root)::
         --device cuda:0
 """
 
-import argparse
-import json
-import logging
 import os
-import pprint
-import re
-from pathlib import Path
 
-import torch
-import yaml
-from kneeno.config import expand_env_vars
-from kneeno.evaluation import ClassificationEvaluator, enabled_tasks, load_eval_config
-from omegaconf import OmegaConf
+# Must be set before numpy is imported (OpenBLAS reads it once, at load time), hence above the other imports.
+# numpy's bundled OpenBLAS otherwise starts one thread per core in every DataLoader worker -- torch only limits
+# its own threads there -- so any BLAS work in the workers oversubscribes the cores. Workers inherit the
+# environment, under fork and spawn alike.
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-from dinov2.configs import dinov2_default_config_3d
-from dinov2.data.kneeno_adapter import DINO3DAdapter
+# Must be set before torch is imported. torch otherwise runs CPU ops in the main process on one OpenMP thread per
+# core, on cores the eval DataLoader workers keep busy: a stuck cluster eval (2026-10-30) sat in libgomp in the
+# F.normalize of a single cached-head batch. Forced, not setdefault: the cluster's job environment already sets
+# OMP_NUM_THREADS=32, which would otherwise win.
+os.environ["OMP_NUM_THREADS"] = "1"
+
+# SimpleITK (it reads the external NIfTIs in the workers) otherwise gives every filter one thread per hardware
+# core, in every worker. ITK reads this when a filter first asks for its default thread count.
+os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = "1"
+
+import argparse  # noqa: E402
+import json  # noqa: E402
+import logging  # noqa: E402
+import pprint  # noqa: E402
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import torch  # noqa: E402
+import yaml  # noqa: E402
+from kneeno.config import expand_env_vars  # noqa: E402
+from kneeno.evaluation import ClassificationEvaluator, enabled_tasks, load_eval_config  # noqa: E402
+from omegaconf import OmegaConf  # noqa: E402
+
+from dinov2.configs import dinov2_default_config_3d  # noqa: E402
+from dinov2.data.kneeno_adapter import DINO3DAdapter  # noqa: E402
 
 logger = logging.getLogger("dinov2")
 
